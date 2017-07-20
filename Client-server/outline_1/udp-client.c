@@ -52,12 +52,5 @@ int main()
 	for(i = 0; i < 5; i++){
 		pthread_join(p_req[i], NULL);
 	}
-/*
-		printf("Отправка сообщения серверу...\n");
-		send(sock, name_client, sizeof(name_client), 0);
-		printf("Ожидается ответ...\n");
-		recv(sock, buf, 20, 0);
-		printf("Ответ сервера[%d]: %s\n", i,buf);
-	}
-*/	return 0;
+	return 0;
 }

@@ -50,7 +50,7 @@ int main()
 	int sock;
 	int i;
 	key_t ipckey;
-	pthread_t p_req[5];
+	pthread_t p_req;
 	struct msgreq s_req;
 	struct msgvar var;
 	struct sockaddr_in server;
@@ -83,9 +83,7 @@ int main()
 
 	printf("Подключение клиента...\n");
 	int status;
-	for(i = 0; i < 5; i++){
-		status = pthread_create(&p_req[i], NULL, (void *)getTime, (void *)&var);
-	}
+	status = pthread_create(&p_req, NULL, (void *)getTime, (void *)&var);
 
 	while(1){
 		if(recvfrom(sock, buf, 30, 0, (struct sockaddr *)&s_req.client, &len) == -1){
@@ -104,7 +102,7 @@ int main()
 		}
 		printf("Отправлено...\n");
 	}
-	pthread_join(p_req[i], (void **)&status);
+	pthread_join(p_req, (void **)&status);
 	printf("Закрытие сокета...\n");
 	close(sock);
 
