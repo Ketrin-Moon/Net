@@ -56,7 +56,6 @@ void* new_port(void *var1)
 	char n_buf[N];
 	struct msgvar  *var = (struct msgvar *)var1;
 	socklen_t len = sizeof(struct sockaddr);
-//	int n_port = 5556;
 
 	memset(n_buf, '0', N);
 
@@ -96,7 +95,6 @@ void* new_port(void *var1)
 	}
 	var->n_port++;
 	}
-	//close(sock);
 }
 
 

@@ -25,12 +25,10 @@ void request()
 {
 	int sock;
 	struct sockaddr_in client;
-//	struct msgreq s_req;
 	struct msgident ident;
 	char name_client[20] = "Client\n";
 	char str[20] = "Identification";
 	char buf[20];
-//	int i;
 
 	memset(buf, '0', 21);
 
@@ -73,22 +71,17 @@ void request()
 			perror("Connect2");
 			exit(1);
 		}
-		int ret;
 		if(send(sock, name_client, sizeof(name_client), 0) < 0){
 			perror("send");
 			exit(1);
 		}
-		if((ret = recv(sock, &buf, 100, 0)) < 0){
+		if((recv(sock, &buf, 100, 0)) < 0){
 			perror("recv");
-//			printf("RET: %d\n", ret);
 			exit(1);
 		}
-		printf("RET: %d\n", ret);
 	}
-	
 	printf("Ответ сервера: %s  %d \n", ident.str, ident.port);
 	printf("Ответ сервера: %s\n", buf);
-	//sleep(5);
 }
 
 int main()
