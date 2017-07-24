@@ -30,34 +30,34 @@ void ethernet(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet)
 void print_ip_header(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet)
 {
         struct my_ip* ip;
-	int size_body;
 	int tmp_csum;
 
         ip = (struct my_ip *)(packet + sizeof(struct ether_header));
         printf("\n----------------------------------IP Header----------------------------------- \n\n");
+        printf("\t|-IP version : %d\n", IP_V(ip));
+	printf("\t|-Length header : %d\n", IP_HL(ip));
+	printf("\t|-Type of service : %d\n", ip->ip_tos);
         printf("\t|-Desrination IP : %s\n", inet_ntoa(ip->ip_dst));
         printf("\t|-Source IP : %s\n", inet_ntoa(ip->ip_src));
         if(ip->ip_p == IPPROTO_TCP)
                 printf("\t|-Protocol : TCP\n");
         else if(ip->ip_p == IPPROTO_UDP)
                 printf("\t|-Protocol : UDP\n");
+
 	tmp_csum = ntohs(ip->ip_sum);
-	printf("\t|-Length header : %d\n", IP_HL(ip));
-	size_body = ntohs(ip->ip_len) - IP_HL(ip);
-	printf("\t|-Length body : %d\n", size_body);
-//	ip->ip_sum = 0;
-	f_chsum(ip);
-	printf("Old csum: %d New csum: %d\n", tmp_csum, ntohs(ip->ip_sum));
+	ip->ip_sum = 0;
+	ip_checksum(ip);
+	printf("\t|-Old csum: %d \n\t|-New csum: %d\n", tmp_csum, ntohs(ip->ip_sum));
 
 }
 
-void f_chsum(struct my_ip *ip)
+void ip_checksum(struct my_ip *ip)
 {
 	ip->ip_sum = 0;
-	ip->ip_sum = chsum((unsigned short *)ip, IP_HL(ip));
+	ip->ip_sum = checksum((unsigned short *)ip, IP_HL(ip)<<2);
 }
 
-unsigned short chsum(unsigned short *addr, unsigned int size)
+unsigned short checksum(unsigned short *addr, unsigned int size)
 {
 	register unsigned long csum = 0;
 
@@ -69,9 +69,9 @@ unsigned short chsum(unsigned short *addr, unsigned int size)
 		csum += ((*addr)&htons(0xFF00));
 	while(csum >> 16)
 		csum = (csum & 0xffff) + (csum >> 16);
-//	csum = ~csum;
-//	return ((unsigned short)csum);
-	return ~csum;
+	csum = ~csum;
+
+	return ((unsigned short)csum);
 }
 
 void printData(const u_char* packet, int size)
@@ -128,7 +128,7 @@ int main()
 	printf("Mask: %s\n", inet_ntoa(addr));
 
 	handle = pcap_open_live(device, 65535, 1, 0, errbuf);
-	pcap_loop(handle, -1, process, NULL);
+	pcap_loop(handle, -1, (void*)process, NULL);
 
 	pcap_close(handle);
 

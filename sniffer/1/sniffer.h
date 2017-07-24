@@ -41,6 +41,6 @@ void process(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet);
 void print_ip_header(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet);
 void ethernet(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet);
 void printData(const u_char *data, int size);
-void f_chsum(struct my_ip *ip);
-unsigned short chsum(unsigned short *addr, unsigned int size);
+void ip_checksum(struct my_ip *ip);
+unsigned short checksum(unsigned short *addr, unsigned int size);
 

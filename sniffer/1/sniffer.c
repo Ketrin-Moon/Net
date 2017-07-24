@@ -1,4 +1,4 @@
-#include "../include/snif.h"
+#include "sniffer.h"
 
 
 /* set ip checksum of a given ip header*/
