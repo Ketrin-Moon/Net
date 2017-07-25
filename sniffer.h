@@ -38,7 +38,8 @@ struct my_tcphdr{
 	u_short dest;
 	u_int16_t seq;
 	u_int16_t ack;
-	u_int off:4;
+//	u_int off:4;
+	u_int off;
 	u_char len, flags;
 	u_short	win;
 	u_short	check;
@@ -64,12 +65,6 @@ struct ps_header{
 	u_short len;
 }__attribute__((packed));
 
-struct check_struct{
-	struct ps_header *ps;
-	struct my_tcphdr *tcp;
-}__attribute__((packed));
-
-
 struct sockaddr_in source, dest;
 
 void process(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet);
@@ -78,6 +73,6 @@ void ethernet(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet);
 void printData(const u_char *data, int size);
 void ip_checksum(struct my_ip *ip);
 unsigned short checksum(unsigned short *addr, unsigned int size);
-void print_udp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, u_int16_t len);
-void print_tcp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, u_int16_t len, struct my_ip *ip);
+void print_udp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, int len, struct my_ip *ip);
+void print_tcp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, int len, struct my_ip *ip);
 

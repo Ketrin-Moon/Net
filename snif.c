@@ -10,36 +10,74 @@ void process(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet)
 
 }
 
-void print_udp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, u_int16_t len)
+void print_udp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, int len, struct my_ip *ip)
 {
-        struct my_udphdr *udp;
-        int iplen = sizeof(struct ether_header) + sizeof(struct my_ip);
+//        struct my_udphdr *udp;
+//        int iplen = sizeof(struct ether_header) + sizeof(struct my_ip);
 
-        udp = (struct my_udphdr *)(packet + iplen);
+	struct udphdr *udp;
+	struct ps_header *ps;
+	int tmp_csum, new_csum = 0;
+        u_short iplen;
+	u_char *udp_packet;
+	int udp_packet_len;
+	int header_size;
+
+	iplen = IP_HL(ip)*4;
+	ps = malloc(sizeof(struct ps_header));
+	udp = (struct udphdr *)(packet + iplen + sizeof(struct ether_header));
+	header_size = sizeof(struct ether_header) + iplen + sizeof(udp);
+	udp_packet_len = 12 + ntohs(udp->len);
+	udp_packet = malloc(udp_packet_len);
+
         printf("\n-----------------------------------UDP Header---------------------------------- \n\n");
         printf("\t|-Destination port : %d\n", ntohs(udp->dest));
         printf("\t|-Source port : %d\n", ntohs(udp->source));
-        printf("\t|-Checksum : %d\n", ntohs(udp->check));
+	printf("\t|-UDP length : %d\n", ntohs(udp->len));
+    
+	ps->source = ip->ip_src;
+	ps->dest = ip->ip_dst;
+	ps->res = 0;
+	ps->prot = ip->ip_p;
+	ps->len = htons(ntohs(ip->ip_len) - iplen);
+
+	tmp_csum = ntohs(udp->check);
+	udp->check = 0;
+
+	memcpy(udp_packet, ps, 12);
+	memcpy(udp_packet + 12, udp, ntohs(udp->len));
+
+	new_csum = checksum((unsigned short*)udp_packet, udp_packet_len);
+	udp_packet = 0; udp_packet_len = 0;
+	printf("\t|-Old csum : 0x%X\n\t|-New csum : 0x%X\n", tmp_csum, ntohs(new_csum));
+	new_csum = 0;
+
 }
 
-void print_tcp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, u_int16_t len, struct my_ip *ip)
+void print_tcp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *packet, int len, struct my_ip *ip)
 {
-        struct my_tcphdr *tcp;
+        struct tcphdr *tcp;
 	struct ps_header *ps;
-	struct check_struct *chstr;
-	int tmp_csum;
-        int iplen;
-	u_char *tcp_packet_s, *tcp_packet_f;
+	int tmp_csum, new_csum = 0;
+        u_short iplen;
+	u_char *tcp_packet;
+	int tcp_packet_len;
+	int header_size;
 
 	iplen = IP_HL(ip)*4;
-
 	ps = malloc(sizeof(struct ps_header));
-	tcp = (struct my_tcphdr *)(packet + iplen + sizeof(struct ether_header));
+	tcp = (struct tcphdr *)(packet + iplen + sizeof(struct ether_header));
+	header_size = sizeof(struct ether_header) + iplen + tcp->doff*4;
+	tcp_packet_len = 12 + tcp->doff*4 + len - header_size;
+	tcp_packet = malloc(tcp_packet_len);
 
         printf("\n-----------------------------------TCP Header---------------------------------- \n\n");
         printf("\t|-Destination port : %d\n", ntohs(tcp->dest));
         printf("\t|-Source port : %d\n", ntohs(tcp->source));
-        printf("\t|-Checksum : %d\n", ntohs(tcp->check));
+	printf("\t|-Sequence number : %u\n", ntohs(tcp->seq));
+	printf("\t|-Acknowlege number : %u\n", ntohs(tcp->ack_seq));
+	printf("\t|-Window : %d\n", ntohs(tcp->window));
+	printf("\t|-Urgent Pointer : %d\n", ntohs(tcp->urg_ptr));
 
 	ps->source = ip->ip_src;
 	ps->dest = ip->ip_dst;
@@ -47,22 +85,17 @@ void print_tcp_header(u_char *args, struct pcap_pkthdr *pkthdr, const u_char *pa
 	ps->prot = ip->ip_p;
 	ps->len = htons(ntohs(ip->ip_len) - iplen);
 
-	printf("Size of ps_header: %d\n", (int) sizeof(*ps));
-
 	tmp_csum = ntohs(tcp->check);
 	tcp->check = 0;
 
-	tcp_packet_s = malloc(sizeof(struct my_tcphdr) + sizeof(struct ps_header));
-	memcpy(tcp_packet_s, ps, 12);
-	tcp_packet_f = tcp_packet_s;
-	memcpy(tcp_packet_f, tcp, tcp->len);
+	memcpy(tcp_packet, ps, 12);
+	memcpy(tcp_packet + 12, tcp, tcp->doff*4);
+	memcpy(tcp_packet + 12 + tcp->doff*4, packet + header_size, len - header_size);
 
-	checksum((unsigned short*)tcp_packet_f, tcp->off:4);
-
-//	printf("IP s: %s\n", inet_ntoa(ip->ip_src));
-//	printf("IP d: %s\n", inet_ntoa(ip->ip_dst));
-	printf("Old csum : %d \t New csum : %d\n", tmp_csum, ntohs(tcp->check));
-
+	new_csum = checksum((unsigned short*)tcp_packet, tcp_packet_len);
+	tcp_packet = 0; tcp_packet_len = 0;
+	printf("\t|-Old csum : 0x%X\n\t|-New csum : 0x%X\n", tmp_csum, ntohs(new_csum));
+	new_csum = 0;
 }
 
 void ethernet(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* packet)
@@ -94,8 +127,11 @@ void print_ip_header(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* pac
         printf("\t|-IP version : %d\n", IP_V(ip));
 	printf("\t|-Length header : %d\n", IP_HL(ip));
 	printf("\t|-Type of service : %d\n", ip->ip_tos);
+//	printf("\t|-Protocol : %d\n", ip->ip_p);
         printf("\t|-Destination IP : %s\n", inet_ntoa(ip->ip_dst));
         printf("\t|-Source IP : %s\n", inet_ntoa(ip->ip_src));
+
+
         if(ip->ip_p == IPPROTO_UDP){
                 printf("\t|-Protocol : UDP(%d)\n", ip->ip_p);
 		flag = 1;
@@ -107,12 +143,13 @@ void print_ip_header(u_char *args, struct pcap_pkthdr* pkthdr, const u_char* pac
 	tmp_csum = ntohs(ip->ip_sum);
 	ip->ip_sum = 0;
 	ip_checksum(ip);
-	printf("\t|-Old csum: %d \n\t|-New csum: %d\n", tmp_csum, ntohs(ip->ip_sum));
+	printf("\t|-Old csum: 0x%x \n\t|-New csum: 0x%x\n", tmp_csum, ntohs(ip->ip_sum));
 
 	if(flag == 1)
-		print_udp_header(args, pkthdr, packet, ip->ip_len);
+		print_udp_header(args, pkthdr, packet, pkthdr->len, ip);
 	else if(flag == 2)
-		print_tcp_header(args, pkthdr, packet, ip->ip_len, ip);
+		print_tcp_header(args, pkthdr, packet, pkthdr->len, ip);
+
 }
 
 void ip_checksum(struct my_ip *ip)
