@@ -38,12 +38,12 @@ int main()
 		perror("socket");
 		exit(1);
 	}
-	strncpy(&if_idx.ifr_name, "eth0", IFNAMSIZ-1);
+	strncpy(&if_idx.ifr_name, "enp0s3", IFNAMSIZ-1);
         if(ioctl(sock, SIOCGIFINDEX, &if_idx) < 0){
                 perror("ioctl");
                 exit(1);
         }
-	strncpy(&if_mac.ifr_name, "eth0", IFNAMSIZ-1);
+	strncpy(&if_mac.ifr_name, "enp0s3", IFNAMSIZ-1);
 	if(ioctl(sock, SIOCGIFHWADDR, &if_mac) < 0){
 		perror("ioctl2");
 		exit(1);
@@ -64,7 +64,7 @@ int main()
 
 	udp->source = htons(2525);
 	udp->dest = htons(3456);
-	udp->len = htons(sizeof(struct udphdr) + strlen(payload));
+	udp->len = htons(sizeof(struct udphdr));
 	udp->check = 0;
 
 	memset(ip, '0', sizeof(struct iphdr));
@@ -72,21 +72,32 @@ int main()
 	ip->ihl = 5;
 	ip->version = 4;
 	ip->tos = 0;
-	ip->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(payload);
+	ip->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(payload));
 	ip->id = htons(35121);
 	ip->frag_off = 0;
 	ip->ttl = 255;
 	ip->protocol = IPPROTO_UDP;
 	ip->check = 0;
-	ip->saddr = inet_addr("192.168.2.1");
-	ip->daddr = inet_addr("192.168.2.1");
+	ip->saddr = inet_addr("10.0.2.15");
+	ip->daddr = inet_addr("127.0.0.1");
 
 	unsigned char *mac;
 	mac = (unsigned char *)if_mac.ifr_hwaddr.sa_data;
 	printf("MAC-address : %.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	unsigned char new_mac[6];
+	int count = 5;
+	for(i = 0; i < 6; i++){
+	    new_mac[count] = mac[i];
+	    count--;
+	}
+	printf("MAC-address : %.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n", new_mac[0], new_mac[1], new_mac[2], new_mac[3], new_mac[4], new_mac[5]);
+	//strcpy(eth->ether_shost, mac);
+	//strcpy(eth->ether_dhost, mac);
 
-	strcpy(eth->ether_shost, mac);
-	strcpy(eth->ether_dhost, mac);
+	for(i = 0; i < 6; i++){
+	    eth->ether_dhost[i] = mac[i];
+	    eth->ether_shost[i] = mac[i];
+	}
 
 	eth->ether_type = htons(ETH_P_IP);
 
@@ -97,11 +108,11 @@ int main()
 	server_ll.sll_pkttype = PACKET_OTHERHOST;
 	server_ll.sll_halen = ETH_ALEN;
 
-	for(i = 0; i < 6; i++){
-		server_ll.sll_addr[i] = mac[i];
-	}
-	server_ll.sll_addr[6] = 0;
-	server_ll.sll_addr[7] = 0;
+//	for(i = 0; i < 6; i++){
+//		server_ll.sll_addr[i] = mac[i];
+//	}
+//	server_ll.sll_addr[6] = 0;
+//	server_ll.sll_addr[7] = 8;
 
 	memcpy(dgram, eth, sizeof(struct ether_header));
 	memcpy(dgram + sizeof(struct ether_header), ip, sizeof(struct iphdr));
@@ -112,7 +123,7 @@ int main()
 	buffer=(char*)(dgram + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr));
 	printf("PAYLOAD : %s\n", buffer);
 
-	if(sendto(sock, dgram, sizeof(struct ether_header)+ip->tot_len, 0, (struct sockaddr*)&server_ll, sizeof(struct sockaddr_ll)) < 0){
+	if(sendto(sock, dgram, sizeof(struct ether_header)+htons(ip->tot_len), 0, (struct sockaddr*)&server_ll, sizeof(struct sockaddr_ll)) < 0){
 		perror("send");
 		exit(1);
 	}
