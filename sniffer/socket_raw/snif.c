@@ -11,90 +11,128 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <netinet/ether.h>
+#include <linux/if_packet.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 int main()
 {
 	int sock;
-	struct sockaddr_in server, cl;
-	char client[1024] = "Hello|I'm client.";
-	char *buf;
-	char dgram[4096];
+	struct sockaddr_ll server_ll;
+	char client[100] = "Hello|I'm client.";
+	int tot_len;
+	char *dgram = NULL;
 	char *payload;
+	struct ether_header *eth= NULL;
 	struct iphdr *ip = NULL;
 	struct udphdr *udp = NULL;
-	int f = 1;
+	struct ifreq if_idx, if_mac;
+	int i;
 
-	buf = malloc(4096);
-	memset(dgram, '0', 4096);
+	memset(&if_idx, '0', sizeof(struct ifreq));
 
-	sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+	sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
 	if(sock < 0){
 		perror("socket");
 		exit(1);
 	}
-/*	if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &f, sizeof(f)) < 0){
-		perror("setsockopt");
+	strncpy(&if_idx.ifr_name, "eth0", IFNAMSIZ-1);
+        if(ioctl(sock, SIOCGIFINDEX, &if_idx) < 0){
+                perror("ioctl");
+                exit(1);
+        }
+	strncpy(&if_mac.ifr_name, "eth0", IFNAMSIZ-1);
+	if(ioctl(sock, SIOCGIFHWADDR, &if_mac) < 0){
+		perror("ioctl2");
 		exit(1);
 	}
-*/	server.sin_family = AF_INET;
-	server.sin_port = htons(2525);
-	server.sin_addr.s_addr = inet_addr("192.168.2.1");
 
-	udp = (struct udphdr *)(dgram + sizeof(struct iphdr));
-	ip = (struct iphdr *)dgram;
+	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &if_idx, sizeof(if_idx));
 
-	payload = dgram + sizeof(struct iphdr) + sizeof(struct udphdr);
-	strncpy(payload, client, 20);
+	tot_len = sizeof(payload) + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr);
+	dgram = calloc(tot_len, sizeof(tot_len));
+	udp = malloc(sizeof(struct udphdr));
+	ip = malloc(sizeof(struct iphdr));
+	eth = malloc(sizeof(struct ether_header));
+
+	payload = dgram + sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct ether_header);
+	strncpy(payload, client, 100);
+
+	memset(udp, '0', sizeof(struct udphdr));
 
 	udp->source = htons(2525);
 	udp->dest = htons(3456);
 	udp->len = htons(sizeof(struct udphdr) + strlen(payload));
 	udp->check = 0;
 
+	memset(ip, '0', sizeof(struct iphdr));
+
 	ip->ihl = 5;
 	ip->version = 4;
 	ip->tos = 0;
 	ip->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(payload);
-	ip->id = htons(54321);
+	ip->id = htons(35121);
 	ip->frag_off = 0;
 	ip->ttl = 255;
 	ip->protocol = IPPROTO_UDP;
 	ip->check = 0;
 	ip->saddr = inet_addr("192.168.2.1");
-	ip->daddr = inet_addr("192.168.2.1");  //server.sin_addr.s_addr;
+	ip->daddr = inet_addr("192.168.2.1");
 
-if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &f, sizeof(f)) < 0){
-                perror("setsockopt");
-                exit(1);
-        }
+	unsigned char *mac;
+	mac = (unsigned char *)if_mac.ifr_hwaddr.sa_data;
+	printf("MAC-address : %.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+	strcpy(eth->ether_shost, mac);
+	strcpy(eth->ether_dhost, mac);
 
-	memcpy(dgram, udp, sizeof(struct udphdr));
-	memcpy(dgram + sizeof(struct udphdr), ip, sizeof(struct iphdr));
-	memcpy(dgram + sizeof(struct udphdr) + sizeof(struct iphdr), payload, strlen(payload));
+	eth->ether_type = htons(ETH_P_IP);
 
-	if(sendto(sock, dgram, sizeof(dgram), 0, (struct sockaddr*)&server, sizeof(server)) < 0){
+	server_ll.sll_family = AF_PACKET;
+	server_ll.sll_protocol = htons(ETH_P_IP);
+	server_ll.sll_ifindex = if_idx.ifr_ifindex;
+	server_ll.sll_hatype = ARPHRD_ETHER;
+	server_ll.sll_pkttype = PACKET_OTHERHOST;
+	server_ll.sll_halen = ETH_ALEN;
+
+	for(i = 0; i < 6; i++){
+		server_ll.sll_addr[i] = mac[i];
+	}
+	server_ll.sll_addr[6] = 0;
+	server_ll.sll_addr[7] = 0;
+
+	memcpy(dgram, eth, sizeof(struct ether_header));
+	memcpy(dgram + sizeof(struct ether_header), ip, sizeof(struct iphdr));
+	memcpy(dgram + sizeof(struct ether_header) + sizeof(struct iphdr), udp, sizeof(struct udphdr));
+	memcpy(dgram + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr), payload, strlen(payload));
+
+	char *buffer;
+	buffer=(char*)(dgram + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr));
+	printf("PAYLOAD : %s\n", buffer);
+
+	if(sendto(sock, dgram, sizeof(struct ether_header)+ip->tot_len, 0, (struct sockaddr*)&server_ll, sizeof(struct sockaddr_ll)) < 0){
 		perror("send");
 		exit(1);
 	}
-	else
-		printf("\n-------------------------------------------------------------------------------------\n");
-		printf("\n   Package sent : %s\t(Length : %d)\n", payload, strlen(payload));
+	printf("\n-------------------------------------------------------------------------------------\n");
+	printf("\n   Package sent : %s\t(Length : %li)\n", payload, strlen(payload));
 
-	socklen_t *len = sizeof(struct sockaddr);
+	if(recvfrom(sock, dgram, sizeof(struct ether_header)+ip->tot_len, 0, NULL, NULL) < 0){
+		perror("recv");
+		exit(1);
+	}
 	while(1){
-		if(recvfrom(sock, dgram, sizeof(dgram), 0, (struct sockaddr *)&server, &len) < 0){
-			perror("recv");
-			exit(1);
-		}
-		memset(client, '0', 1024);
+		memset(client, '0', 100);
+
 		ip = (struct iphdr *)dgram;
 		udp = (struct udphdr *)(dgram + ip->ihl*4);
-		if(ntohs(udp->dest) == 2525)
+		if(udp->dest == 2525)
 			break;
 	}
-	memcpy(client, dgram + sizeof(struct udphdr) + ip->ihl*4, 1024);
+
+	memcpy(client, dgram + sizeof(struct udphdr) + ip->ihl*4, 100);
 
 	printf("\n------------------------------------IP Header----------------------------------------\n\n");
 	printf("\t|-IP Version : %d\n", ip->version);
@@ -109,7 +147,7 @@ if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &f, sizeof(f)) < 0){
 	printf("\t|-UDP Length : %d\n", ntohs(udp->len));
 	printf("\t|-UDP Checksum : %X\n", udp->check);
 	printf("\n-------------------------------------------------------------------------------------\n");
-	printf("\n   Received a package : %s\t(Length : %d)\n", client, strlen(client));
+	printf("\n   Received a package : %s\t(Length : %li)\n", client, strlen(client));
 	printf("\n-------------------------------------------------------------------------------------\n\n");
 	return 0;
 }
