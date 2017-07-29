@@ -1,113 +1,116 @@
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
-#include <netinet/tcp.h>
-#include <netdb.h>
-#include <arpa/inet.h>
+#include "lib.h"
 
-int main()
+unsigned short checksum(void *b, int len)
 {
-	int sock;
-	struct sockaddr_in server, cl;
-	char client[100] = "Hello|I'm client.";
-	char *buf;
-	char dgram[100];
-	char *payload;
-	struct iphdr *ip = NULL;
-	struct udphdr *udp = NULL;
-	int f = 1;
-	socklen_t *len = sizeof(struct sockaddr);
+	u_short *buf = b, result;
+	u_int sum = 0;
 
-	buf = malloc(100);
-	memset(dgram, '0', 100);
+	for(sum = 0; len > 1; len -= 2)
+	    sum += *buf++;
+	if(len == 1)
+	    sum += *(unsigned char*)buf;
+	sum = (sum >> 16) + (sum & 0xFFFF);
+	sum += (sum >> 16);
+	result = ~sum;
 
-	sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+	return result;
+}
 
-	if(sock < 0){
-		perror("socket");
-		exit(1);
-	}
+void request(struct sockaddr_in *req)
+{
+	struct packet_struct pckt;
+	struct sockaddr_in *rep;
+        int socket_req;
+        int ttl = 255;
+	int i;
+	int count = 1;
 
-	server.sin_family = AF_INET;
-	server.sin_port = htons(2525);
-	server.sin_addr.s_addr = inet_addr("192.168.2.1");
+	socket_req = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 
-	udp = (struct udphdr *)(dgram + sizeof(struct iphdr));
-	ip = (struct iphdr *)dgram;
-
-	payload = dgram + sizeof(struct iphdr) + sizeof(struct udphdr);
-	strncpy(payload, client, 20);
-
-	memset(udp, '0', sizeof(struct udphdr));
-
-	udp->source = htons(2525);
-	udp->dest = htons(3456);
-	udp->len = htons(sizeof(struct udphdr) + strlen(payload));
-	udp->check = 0;
-
-	memset(ip, '0', sizeof(struct iphdr));
-
-	ip->ihl = 5;
-	ip->version = 4;
-	ip->tos = 0;
-	ip->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(payload);
-	ip->id = htons(35121);
-	ip->frag_off = 0;
-	ip->ttl = 255;
-	ip->protocol = IPPROTO_UDP;
-	ip->check = 0;
-	ip->saddr = inet_addr("192.168.2.1");
-	ip->daddr = inet_addr("192.168.2.1");
-
-	if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &f, sizeof(f)) < 0){
-                perror("setsockopt");
-                exit(1);
+	if(socket_req < 0){
+    	    perror("socket_req");
+	    exit(1);
         }
 
-	memcpy(dgram, ip, sizeof(struct iphdr));
-	memcpy(dgram + sizeof(struct iphdr), udp, sizeof(struct udphdr));
-	memcpy(dgram + sizeof(struct iphdr) + sizeof(struct udphdr), payload, strlen(payload));
+	if(fcntl(socket_req, F_SETFL, O_NONBLOCK) < 0){
+	    perror("fcntl");
+	    exit(1);
+        }
 
-	if(sendto(sock, dgram, sizeof(dgram), 0, (struct sockaddr*)&server, sizeof(server)) < 0){
-		perror("send");
+	if(setsockopt(socket_req, SOL_IP, IP_TTL, &ttl, sizeof(ttl)) < 0){
+	    perror("setsockopt");
+	    exit(1);
+	}
+
+	for(;;){
+	    bzero(&pckt, sizeof(pckt));
+	    pckt.icmp.type = ICMP_ECHO;
+	    pckt.icmp.un.echo.id = getpid();
+	    for(i = 0; i < sizeof(pckt.msg)-1; i++)
+		pckt.msg[i] = 0;
+	    pckt.icmp.un.echo.sequence = count++;
+	    pckt.icmp.checksum = checksum(&pckt, sizeof(pckt));
+
+	    if(sendto(socket_req, &pckt, sizeof(pckt), 0, (struct sockaddr *)req, sizeof(*req)) < 0){
+		perror("sendto");
 		exit(1);
+	    }
+	    sleep(1);
+	}
+}
+
+void reply(pid_t pid)
+{
+	struct sockaddr_in *rep;
+	struct my_ip *ip = NULL;
+	struct icmphdr *icmp = NULL;
+    	int socket_reply;
+	int bytes;
+	char buf[100];
+	socklen_t len = sizeof(struct sockaddr);
+
+	socket_reply = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	if(socket_reply < 0){
+	    perror("socket_reply");
+	    exit(1);
+	}
+	for(;;){
+	    bzero(buf, sizeof(buf));
+	    bytes = recvfrom(socket_reply, buf, sizeof(buf), 0, (struct sockaddr *)&rep, &len);
+	    if(bytes < 0){
+		perror("recvfrom");
+		exit(1);
+	    }
+	    ip = buf;
+	    icmp = buf + IP_HL(ip)*4;
+	    if(icmp->un.echo.id == pid){
+		    printf("%d bytes from %s: icmp_seq=%d ttl=%d\n", bytes, inet_ntoa(ip->ip_src), icmp->un.echo.sequence, ip->ip_ttl);
+	    }
+	}
+}
+
+int main(int argc, char **argv)
+{
+	struct sockaddr_in client;
+	pid_t pid;
+
+	if(argc < 2){
+	    printf("./ping <address>\n");
+	    exit(1);
+	}
+
+	client.sin_family = AF_INET;
+	client.sin_port = 0;
+	client.sin_addr.s_addr = inet_addr(argv[1]);
+	
+	pid = getpid();
+
+	if(fork() == 0){
+	    reply(pid);
 	}
 	else
-		printf("\n-------------------------------------------------------------------------------------\n");
-		printf("\n   Package sent : %s\t(Length : %d)\n", payload, strlen(payload));
-
-		if(recvfrom(sock, dgram, sizeof(dgram), 0, (struct sockaddr *)&server, &len) < 0){
-			perror("recv");
-			exit(1);
-	}
-	memset(client, '0', 100);
-
-	ip = (struct iphdr *)dgram;
-	udp = (struct udphdr *)(dgram + ip->ihl*4);
-
-	memcpy(client, dgram + sizeof(struct udphdr) + ip->ihl*4, 100);
-
-	printf("\n------------------------------------IP Header----------------------------------------\n\n");
-	printf("\t|-IP Version : %d\n", ip->version);
-	printf("\t|-Length : %d\n", ip->ihl);
-	printf("\t|-Type of Service : %d\n", ip->tos);
-	printf("\t|-Total Length : %d\n", ntohs(ip->tot_len));
-	printf("\t|-Identifire : %d\n", ip->id);
-	printf("\t|-Protocol : %d\n", ip->protocol);
-	printf("\n-------------------------------------UDP Header--------------------------------------\n\n");
-	printf("\t|-Source Port : %d\n", ntohs(udp->source));
-	printf("\t|-Destination Port : %d\n", ntohs(udp->dest));
-	printf("\t|-UDP Length : %d\n", ntohs(udp->len));
-	printf("\t|-UDP Checksum : %X\n", udp->check);
-	printf("\n-------------------------------------------------------------------------------------\n");
-	printf("\n   Received a package : %s\t(Length : %d)\n", client, strlen(client));
-	printf("\n-------------------------------------------------------------------------------------\n\n");
-	return 0;
+	    request(&client);
+	wait(0);
+        return 0;
 }
+
