@@ -10,7 +10,7 @@
 int main()
 {
 	int sock;
-	struct sockaddr_in address, server;
+	struct sockaddr_in address;
 	char name_client[20] = "Client";
 	char *buf;
 
@@ -23,7 +23,7 @@ int main()
 		exit(1);
 	}
 	address.sin_family = AF_INET;
-	address.sin_port = htons(3535);
+	address.sin_port = htons(3456);
 	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	if(connect(sock, (struct sockaddr *)&address, sizeof(address)) < 0){
 		perror("connect");
